@@ -74,4 +74,34 @@ export interface UserProfile {
   completedStoryIds: string[]
   storyProgress: Record<string, ReadingProgress>
   badges: Badge[]
+  inventory?: string[]
 }
+
+export interface Category {
+  id: string
+  name: StoryGenre
+  slug: string
+  icon: string
+  color: string
+  gradient: string
+  description: string
+  featuredStoryId?: string
+  totalStories: number
+  popularityScore: number
+  tags: string[]
+}
+
+export type ShopItemCategory = 'powerup' | 'avatar' | 'theme'
+
+export interface ShopItem {
+  id: string
+  name: string
+  description: string
+  price: number
+  icon: string
+  category: ShopItemCategory
+  badgeText?: string
+  effectValue?: string
+  isAvailable?: boolean
+}
+

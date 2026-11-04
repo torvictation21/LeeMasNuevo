@@ -1,26 +1,33 @@
 <script setup lang="ts">
 import type { Story, StoryGenre } from '~/types/leemas'
 
-const { allStories, isFavorite, toggleFavorite } = useGamification()
+const categoryStore = useCategoryStore()
+const storyStore = useStoryStore()
+const userStore = useUserStore()
+
+onMounted(async () => {
+  await Promise.all([
+    categoryStore.fetchCategories(),
+    storyStore.fetchStories(),
+    userStore.loadProfile()
+  ])
+})
 
 const searchQuery = ref('')
-const selectedGenre = ref<string>('Todos')
+const selectedGenre = computed({
+  get: () => categoryStore.selectedCategory.value,
+  set: (val: string) => categoryStore.selectCategory(val)
+})
 
-const genresList = [
-  'Todos',
-  'Aventura',
-  'Ciencia Ficción',
-  'Fantasía',
-  'Misterio',
-  'Terror',
-  'Microcuento',
-  'Humor'
-]
+const categoriesList = computed(() => categoryStore.categoryNames.value)
+const activeCategoryInfo = computed(() => categoryStore.activeCategoryInfo.value)
 
 const filteredStories = computed(() => {
-  return allStories.value.filter((story) => {
-    // Filtro por género
-    const matchesGenre = selectedGenre.value === 'Todos' || story.genre === selectedGenre.value
+  return storyStore.stories.value.filter((story) => {
+    // Filtro por género/categoría
+    const matchesGenre =
+      selectedGenre.value === 'Todos' ||
+      story.genre.toLowerCase() === selectedGenre.value.toLowerCase()
 
     // Filtro por texto de búsqueda
     const query = searchQuery.value.trim().toLowerCase()
@@ -37,8 +44,11 @@ const filteredStories = computed(() => {
 })
 
 const spotlightStory = computed(() => {
-  return allStories.value.find((s) => s.id === 'cartas-desde-marte') || allStories.value[0]
+  return storyStore.spotlightStory.value
 })
+
+const isFavorite = (id: string) => userStore.isFavorite(id)
+const toggleFavorite = (id: string) => userStore.toggleFavorite(id)
 </script>
 
 <template>
@@ -66,19 +76,38 @@ const spotlightStory = computed(() => {
         </button>
       </div>
 
-      <!-- Selector de Géneros (Chips) -->
-      <section class="genre-chips-scroll" aria-label="Filtro por géneros">
+      <!-- Selector de Géneros / Categorías (Chips alimentados por CategoryStore) -->
+      <section class="genre-chips-scroll" aria-label="Filtro por categorías">
         <button 
-          v-for="g in genresList" 
+          v-for="g in categoriesList" 
           :key="g"
           type="button"
           class="genre-chip-btn"
           :class="{ active: selectedGenre === g }"
           @click="selectedGenre = g"
         >
-          {{ g === 'Todos' ? '✨ Todos los géneros' : g }}
+          <span v-if="g === 'Todos'">✨ Todos</span>
+          <span v-else>
+            {{ categoryStore.getCategoryByName(g)?.icon || '📖' }} {{ g }}
+          </span>
         </button>
       </section>
+
+      <!-- Banner Informativo de la Categoría Seleccionada -->
+      <section v-if="activeCategoryInfo && !searchQuery" class="category-info-card glass-panel">
+        <div class="category-info-header">
+          <span class="category-info-icon">{{ activeCategoryInfo.icon }}</span>
+          <div class="category-info-body">
+            <div class="category-tags-row">
+              <span class="category-badge">Categoría Oficial</span>
+              <span v-for="tag in activeCategoryInfo.tags" :key="tag" class="category-mini-tag">#{{ tag }}</span>
+            </div>
+            <h2>{{ activeCategoryInfo.name }}</h2>
+            <p>{{ activeCategoryInfo.description }}</p>
+          </div>
+        </div>
+      </section>
+
 
       <!-- Historia Destacada del Día (Spotlight) -->
       <section v-if="!searchQuery && selectedGenre === 'Todos' && spotlightStory" class="spotlight-section">
@@ -547,9 +576,86 @@ const spotlightStory = computed(() => {
   margin-bottom: 12px;
 }
 
+/* Category Info Card */
+.category-info-card {
+  padding: 24px 28px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 252, 0.95));
+  border: 1.5px solid #e2e8f0;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+  margin-bottom: 28px;
+  animation: fadeInCategory 0.3s ease-out;
+}
+
+@keyframes fadeInCategory {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.category-info-header {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.category-info-icon {
+  font-size: 40px;
+  line-height: 1;
+  background: #f1f5f9;
+  padding: 12px;
+  border-radius: 16px;
+}
+
+.category-info-body {
+  flex: 1;
+}
+
+.category-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.category-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: #7357ed;
+  color: #ffffff;
+  padding: 3px 8px;
+  border-radius: 99px;
+}
+
+.category-mini-tag {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.category-info-body h2 {
+  font-family: "Fredoka", sans-serif;
+  font-size: 24px;
+  margin: 0 0 6px;
+  color: #0f172a;
+}
+
+.category-info-body p {
+  font-size: 14px;
+  color: #475569;
+  margin: 0;
+  line-height: 1.5;
+}
+
 @media (max-width: 768px) {
   .spotlight-card {
     grid-template-columns: 1fr;
+  }
+  .category-info-header {
+    flex-direction: column;
+    gap: 12px;
   }
 }
 </style>

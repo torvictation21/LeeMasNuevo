@@ -1,5 +1,25 @@
 <script setup lang="ts">
-const { profile } = useGamification()
+import type { ShopItem } from '~/types/leemas'
+
+const shopStore = useShopStore()
+const userStore = useUserStore()
+
+const purchaseFeedback = ref<{ success: boolean; message: string } | null>(null)
+
+onMounted(async () => {
+  await Promise.all([
+    shopStore.fetchCatalog(),
+    userStore.loadProfile()
+  ])
+})
+
+async function handlePurchase(item: ShopItem) {
+  const result = await shopStore.buyItem(item)
+  purchaseFeedback.value = result
+  setTimeout(() => {
+    purchaseFeedback.value = null
+  }, 4000)
+}
 </script>
 
 <template>
@@ -8,59 +28,75 @@ const { profile } = useGamification()
 
     <div class="content store-page">
       <section class="store-hero glass-panel">
-        <div class="store-badge">🛍️ TIENDA LEEMÁS · PRÓXIMAMENTE</div>
+        <div class="store-badge">🛍️ TIENDA LEEMÁS · CANJES DISPONIBLES</div>
         <h1 class="store-title">Canjea tus Hojas Mágicas</h1>
         <p class="store-subtitle">
-          Acumula hojas leyendo cada día y muy pronto podrás desbloquear protectores de racha, avatares legendarios y temas visuales exclusivos.
+          Acumula hojas leyendo cada día y desbloquea protectores de racha, avatares legendarios y temas visuales exclusivos para tu experiencia lectora.
         </p>
 
         <div class="store-balance-card">
           <span class="balance-icon">🍃</span>
           <div>
-            <strong class="balance-amount">{{ profile.leaves }} Hojas</strong>
+            <strong class="balance-amount">{{ userStore.profile.value.leaves }} Hojas</strong>
             <p class="balance-label">Tu saldo acumulado actual</p>
           </div>
         </div>
+
+        <!-- Mensaje de feedback de compra -->
+        <transition name="fade">
+          <div 
+            v-if="purchaseFeedback" 
+            class="purchase-alert" 
+            :class="{ success: purchaseFeedback.success, error: !purchaseFeedback.success }"
+          >
+            {{ purchaseFeedback.success ? '🎉 ' : '⚠️ ' }}{{ purchaseFeedback.message }}
+          </div>
+        </transition>
       </section>
 
-      <!-- Vista previa de artículos que estarán disponibles -->
+      <!-- Catálogo de Artículos de la Store -->
       <section class="store-preview-section">
-        <h2 class="section-title">Próximos artículos en catálogo</h2>
-        <div class="store-items-grid">
-          <article class="store-item-card glass-panel">
-            <div class="item-icon-wrapper">🛡️</div>
-            <div class="item-info">
-              <h3>Protector de Racha</h3>
-              <p>Evita perder tu racha si un día no alcanzas a completar tu lectura diaria.</p>
-              <div class="item-price">
-                <span class="leaf-coin">🍃</span> 50 Hojas
-              </div>
-            </div>
-            <button class="store-item-btn" disabled>Próximamente</button>
-          </article>
+        <h2 class="section-title">Artículos en catálogo (Servidor)</h2>
+        
+        <div v-if="shopStore.isLoading.value && shopStore.items.value.length === 0" class="store-loading">
+          <p>Cargando catálogo de artículos mágicos...</p>
+        </div>
 
-          <article class="store-item-card glass-panel">
-            <div class="item-icon-wrapper">🦉</div>
-            <div class="item-info">
-              <h3>Avatar Búho Erudito</h3>
-              <p>Muestra tu sabiduría lectora en tu perfil con este avatar animado.</p>
-              <div class="item-price">
-                <span class="leaf-coin">🍃</span> 120 Hojas
-              </div>
+        <div v-else class="store-items-grid">
+          <article 
+            v-for="item in shopStore.items.value" 
+            :key="item.id" 
+            class="store-item-card glass-panel"
+            :class="{ 'item-owned': shopStore.isItemPurchased(item.id) }"
+          >
+            <div class="item-header-row">
+              <div class="item-icon-wrapper">{{ item.icon }}</div>
+              <span v-if="item.badgeText" class="item-category-badge">{{ item.badgeText }}</span>
             </div>
-            <button class="store-item-btn" disabled>Próximamente</button>
-          </article>
 
-          <article class="store-item-card glass-panel">
-            <div class="item-icon-wrapper">✨</div>
             <div class="item-info">
-              <h3>Tema Aurora Borealis</h3>
-              <p>Paleta de colores boreal brillante para la interfaz de lectura nocturna.</p>
+              <h3>{{ item.name }}</h3>
+              <p>{{ item.description }}</p>
               <div class="item-price">
-                <span class="leaf-coin">🍃</span> 80 Hojas
+                <span class="leaf-coin">🍃</span> {{ item.price }} Hojas
               </div>
             </div>
-            <button class="store-item-btn" disabled>Próximamente</button>
+
+            <button 
+              v-if="shopStore.isItemPurchased(item.id)" 
+              class="store-item-btn btn-owned" 
+              disabled
+            >
+              ✓ Adquirido
+            </button>
+            <button 
+              v-else 
+              class="store-item-btn btn-buy" 
+              :disabled="userStore.profile.value.leaves < item.price || shopStore.isPurchasing.value"
+              @click="handlePurchase(item)"
+            >
+              {{ userStore.profile.value.leaves >= item.price ? `Canjear por ${item.price} Hojas` : 'Hojas insuficientes' }}
+            </button>
           </article>
         </div>
       </section>
@@ -218,16 +254,84 @@ const { profile } = useGamification()
   font-size: 14px;
 }
 
+.purchase-alert {
+  margin-top: 20px;
+  padding: 12px 24px;
+  border-radius: 99px;
+  font-weight: 700;
+  font-size: 14px;
+  animation: slideDown 0.3s ease-out;
+}
+.purchase-alert.success {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #86efac;
+}
+.purchase-alert.error {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
+}
+
+.item-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.item-category-badge {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 99px;
+  background: #fef08a;
+  color: #854d0e;
+  text-transform: uppercase;
+}
+
+.item-owned {
+  border-color: #86efac !important;
+  background: #f0fdf4 !important;
+}
+
+.store-loading {
+  text-align: center;
+  padding: 40px;
+  color: #64748b;
+  font-size: 16px;
+}
+
 .store-item-btn {
-  padding: 10px 18px;
+  padding: 12px 18px;
   border-radius: 99px;
   border: 0;
-  background: #f1f5f9;
-  color: #94a3b8;
   font-size: 13px;
   font-weight: 700;
-  cursor: not-allowed;
+  cursor: pointer;
   margin-top: auto;
+  transition: all 0.2s;
+}
+
+.btn-buy {
+  background: #10b981;
+  color: #ffffff;
+}
+.btn-buy:hover:not(:disabled) {
+  background: #059669;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+.btn-buy:disabled {
+  background: #e2e8f0;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.btn-owned {
+  background: #dcfce7;
+  color: #166534;
+  cursor: default;
+  border: 1px solid #bbf7d0;
 }
 
 .store-back-row {
